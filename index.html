@@ -64,6 +64,52 @@
         .layer-switcher label {
             cursor: pointer;
         }
+
+        /* Estilo para el buscador por especie */
+        #species-search-container {
+            position: absolute;
+            top: 135px;
+            left: 10px;
+            z-index: 1000;
+            font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+        }
+        #species-search-input {
+            width: 200px;
+            padding: 6px 10px;
+            border-radius: 4px;
+            border: 1px solid #ffffff;
+            background: #72cb94;
+            color: #ffffff;
+            font-weight: 700;
+            font-size: 12px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            outline: none;
+        }
+        #species-search-input::placeholder {
+            color: rgba(255, 255, 255, 0.9);
+            font-weight: 600;
+        }
+        #species-search-results {
+            max-height: 160px;
+            overflow-y: auto;
+            background: #ffffff;
+            border-radius: 4px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            margin-top: 3px;
+            display: none;
+        }
+        .species-result-item {
+            padding: 7px 10px;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: #2c3e50;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .species-result-item:hover {
+            background-color: #72cb94;
+            color: #ffffff;
+        }
         </style>
 
         <style>
@@ -83,6 +129,12 @@
                 <a href="#" id="popup-closer" class="ol-popup-closer"></a>
                 <div id="popup-content"></div>
             </div>
+        </div>
+
+        <!-- Componente del Buscador por Especie -->
+        <div id="species-search-container">
+            <input type="text" id="species-search-input" placeholder="🔍 Buscar especie..." autocomplete="off">
+            <div id="species-search-results"></div>
         </div>
 
         <!-- Banner Institucional Flotante (Inferior Izquierda) -->
@@ -166,9 +218,112 @@
         <script src="./resources/Autolinker.min.js"></script>
         <script src="./resources/qgis2web.js"></script>        
 
-        <!-- Script Optimizado de Renderización de Fotos en Popups -->
+        <!-- Script con Capa de Resaltado Directo sobre el Punto Buscado -->
         <script>
             window.addEventListener('load', function() {
+                setTimeout(function() {
+                    try {
+                        var input = document.getElementById('species-search-input');
+                        var resultsDiv = document.getElementById('species-search-results');
+
+                        // Crear capa vectorial exclusiva para el marcador de resalte
+                        var highlightSource = new ol.source.Vector();
+                        var highlightLayer = new ol.layer.Vector({
+                            source: highlightSource,
+                            style: new ol.style.Style({
+                                image: new ol.style.Circle({
+                                    radius: 12,
+                                    fill: new ol.style.Fill({ color: 'rgba(255, 235, 59, 0.6)' }),
+                                    stroke: new ol.style.Stroke({ color: '#ff1744', width: 3 })
+                                })
+                            }),
+                            zIndex: 9999
+                        });
+
+                        if (typeof map !== 'undefined' && map) {
+                            map.addLayer(highlightLayer);
+                        }
+
+                        if (input && typeof json_Especies_4 !== 'undefined') {
+                            input.addEventListener('input', function() {
+                                var val = this.value.toLowerCase().trim();
+                                resultsDiv.innerHTML = '';
+
+                                if (val.length < 2) {
+                                    resultsDiv.style.display = 'none';
+                                    return;
+                                }
+
+                                var matches = json_Especies_4.features.filter(function(feature) {
+                                    var props = feature.properties || {};
+                                    var speciesName = '';
+                                    for (var key in props) {
+                                        if (key.toLowerCase().includes('especie') || key.toLowerCase().includes('species') || key.toLowerCase() === 'name') {
+                                            speciesName = props[key];
+                                            break;
+                                        }
+                                    }
+                                    if (!speciesName) speciesName = JSON.stringify(props);
+                                    return speciesName.toString().toLowerCase().includes(val);
+                                });
+
+                                if (matches.length > 0) {
+                                    resultsDiv.style.display = 'block';
+                                    matches.slice(0, 10).forEach(function(feature) {
+                                        var props = feature.properties || {};
+                                        var name = 'Especie';
+                                        for (var key in props) {
+                                            if (key.toLowerCase().includes('especie') || key.toLowerCase().includes('species') || key.toLowerCase() === 'name') {
+                                                name = props[key];
+                                                break;
+                                            }
+                                        }
+
+                                        var item = document.createElement('div');
+                                        item.className = 'species-result-item';
+                                        item.innerText = name;
+
+                                        item.addEventListener('click', function() {
+                                            if (typeof map !== 'undefined' && map) {
+                                                var rawCoords = feature.geometry.coordinates.slice();
+                                                var pointCoord = rawCoords;
+
+                                                if (rawCoords[0] >= -180 && rawCoords[0] <= 180) {
+                                                    pointCoord = ol.proj.fromLonLat(rawCoords);
+                                                }
+
+                                                // 1. Limpiar resalte previo y colocar nueva marca de resalte
+                                                highlightSource.clear();
+                                                var highlightFeature = new ol.Feature({
+                                                    geometry: new ol.geom.Point(pointCoord)
+                                                });
+                                                highlightSource.addFeature(highlightFeature);
+
+                                                // 2. Animar vista del mapa al punto objetivo
+                                                map.getView().animate({ center: pointCoord, zoom: 17, duration: 500 });
+                                            }
+                                            resultsDiv.style.display = 'none';
+                                            input.value = name;
+                                        });
+                                        resultsDiv.appendChild(item);
+                                    });
+                                } else {
+                                    resultsDiv.style.display = 'none';
+                                }
+                            });
+
+                            document.addEventListener('click', function(e) {
+                                if (!document.getElementById('species-search-container').contains(e.target)) {
+                                    resultsDiv.style.display = 'none';
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        console.log("Error en buscador de especies:", e);
+                    }
+                }, 500);
+
+                // Renderizado dinámico de fotografías en Popups
                 var container = document.getElementById('popup-content');
                 if (!container) return;
 
